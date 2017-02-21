@@ -9,6 +9,7 @@ def visualize_assignments(assignments):
         if last_assignment:
             last_assignment_items = [item for item in last_assignment.items() if len(item[1]) == 1]
             current_assignment_items = [item for item in assignments[i].items() if len(item[1]) == 1]
+            print(last_assignment_items)
             shared_items = set(last_assignment_items) & set(current_assignment_items)
             if len(shared_items) < len(current_assignment_items):
                 filtered_assignments.append(assignments[i])

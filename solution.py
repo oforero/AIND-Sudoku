@@ -1,64 +1,263 @@
-assignments = []
+from typing import Callable, Dict, List, Set, Tuple, Union
+from itertools import chain, groupby
+from collections import Counter
+from enum import Enum
 
-def assign_value(values, box, value):
-    """
-    Please use this function to update your values dictionary!
-    Assigns a value to a given box. If it updates the board record it.
-    """
-    values[box] = value
-    if len(value) == 1:
-        assignments.append(values.copy())
-    return values
+# Type Declarations
+RowCol = Tuple[chr, chr, chr, chr, chr, chr, chr, chr, chr]
+Box = Tuple[chr, chr]
+Unit = Tuple[Box, Box, Box,
+             Box, Box, Box,
+             Box, Box, Box]
 
-def naked_twins(values):
-    """Eliminate values using the naked twins strategy.
-    Args:
-        values(dict): a dictionary of the form {'box_name': '123456789', ...}
+Values = Set[chr]
+Board = Dict[Box, Values]
 
-    Returns:
-        the values dictionary with the naked twins eliminated from peers.
-    """
+Constraint = Callable[[any, Unit], Board]
 
-    # Find all instances of naked twins
-    # Eliminate the naked twins as possibilities for their peers
+# Constants
+ROWS: RowCol = tuple(map(chr, range(ord('A'), ord('I')+1)))
+COLS: RowCol = tuple(map(chr, range(ord('1'), ord('9')+1)))
+BOX_VALUES: Values = set(COLS)
 
-def cross(A, B):
-    "Cross product of elements in A and elements in B."
-    pass
+ALL_BOXES: List[Box] = [tuple([r, c]) for r in ROWS for c in COLS]
 
-def grid_values(grid):
-    """
-    Convert grid into a dict of {square: char} with '123456789' for empties.
-    Args:
-        grid(string) - A grid in string form.
-    Returns:
-        A grid in dictionary form
-            Keys: The boxes, e.g., 'A1'
-            Values: The value in each box, e.g., '8'. If the box has no value, then the value will be '123456789'.
-    """
-    pass
+ROW_UNITS: List[Unit] = list(map(lambda g: tuple(g[1]), groupby(ALL_BOXES, lambda box: box[0])))
+COL_UNITS: List[Unit] = list(map(lambda g: tuple(g[1]), groupby(sorted(ALL_BOXES, key=lambda b: b[1]),
+                                                                lambda box: box[1])))
 
-def display(values):
-    """
-    Display the values as a 2-D grid.
-    Args:
+
+def box_unit(box: Box) -> int:
+    return (1 if box[0] in ['A', 'B', 'C'] and box[1] in ['1', '2', '3'] else
+            2 if box[0] in ['A', 'B', 'C'] and box[1] in ['4', '5', '6'] else
+            3 if box[0] in ['A', 'B', 'C'] and box[1] in ['7', '8', '9'] else
+            4 if box[0] in ['D', 'E', 'F'] and box[1] in ['1', '2', '3'] else
+            5 if box[0] in ['D', 'E', 'F'] and box[1] in ['4', '5', '6'] else
+            6 if box[0] in ['D', 'E', 'F'] and box[1] in ['7', '8', '9'] else
+            7 if box[0] in ['G', 'H', 'I'] and box[1] in ['1', '2', '3'] else
+            8 if box[0] in ['G', 'H', 'I'] and box[1] in ['4', '5', '6'] else
+            9)
+
+BOX_UNITS: List[Unit] = list(map(lambda g: tuple(g[1]), groupby(sorted(ALL_BOXES, key=box_unit),
+                                                                box_unit)))
+
+
+def diagonal_unit(box: Box) -> int:
+    return (1 if "".join(box) in ['A1', 'B2', 'C3', 'D4', 'E5', 'F6', 'G7', 'H8', 'I9'] else
+            2 if "".join(box) in ['A9', 'B8', 'C7', 'D6', 'E5', 'F4', 'G3', 'H2', 'I1'] else
+            3)
+
+DIAGONAL_UNITS: List[Unit] = list(map(lambda g: tuple(g[1]), groupby(sorted(ALL_BOXES, key=diagonal_unit),
+                                                                     diagonal_unit)))[:2]
+
+ALL_UNITS: List[Unit] = list(chain(ROW_UNITS, COL_UNITS, BOX_UNITS, DIAGONAL_UNITS))
+
+
+def build_unit(ix: chr, other: RowCol, ix_first=True) -> Unit:
+    if ix_first:
+        return tuple(map(lambda o: Box(ix, o), other))
+    else:
+        return tuple(map(lambda o: Box(o, ix), other))
+
+
+class ValueResult(Enum):
+    ERROR = 1
+    UNCHANGED = 2
+    OK = 3
+
+
+class Sudoku(object):
+    def __init__(self, grid: Union[str, Board], assignments=[], units=ALL_UNITS):
+        self.__UNITS__ = units
+        if isinstance(grid, str):
+            flat_board = zip(ALL_BOXES, grid)
+            self.board: Board = dict(map(lambda x: (x[0], set(chr(ord(x[1]))) if x[1] != '.' else BOX_VALUES),
+                                         flat_board))
+            self.assignments = []
+
+        else:
+            self.board = grid
+            self.assignments = assignments[::]
+
+    def __str__(self):
+        return "".join(map(lambda it: '*' if len(it[1]) == 0 else
+                                      list(it[1])[0] if len(it[1]) == 1 else '.',
+                           sorted(self.board.items())))
+
+    def copy(self):
+        return Sudoku(self.board.copy())
+
+    def is_solved(self) -> bool:
+        return all(map(lambda it: len(it[1]) == 1, self.board.items()))
+
+    def is_not_solved(self) -> bool:
+        return not self.is_solved()
+
+    def is_unsolvable(self) -> bool:
+        return any(map(lambda it: len(it[1]) == 0, self.board.items()))
+
+    def is_solvable(self) -> bool:
+        return not self.is_unsolvable()
+
+    def get_box_value(self, ix: Box) -> Values:
+        return self.board[ix]
+
+    def get_assigned_values(self, unit: Unit) -> Set[chr]:
+        return set.union(*[self.board[box] for box in unit if len(self.board[box]) == 1])
+
+    def get_unassigned_values(self, unit: Unit) -> List[chr]:
+        return list(chain(*[self.board[box] for box in unit if len(self.board[box]) > 1]))
+
+    def get_units_for_box(self, box: Box) -> List[Unit]:
+        return list(filter(lambda unit: box in unit, self.__UNITS__))
+
+    def set_box_value(self, box: Box, v: Values) -> ValueResult:
+        if not v or len(self.board[box]) == 1:
+            return ValueResult.ERROR
+
+        if self.board[box] == v:
+            return ValueResult.UNCHANGED
+
+        if len(v) == 1:
+            for unit in self.get_units_for_box(box):
+                assigned = self.get_assigned_values(unit)
+                if v in assigned:
+                    return ValueResult.ERROR
+
+            self.board[box] = v
+            self.assignments.append(convert_board(self.board, reverse=True))
+
+        self.board[box] = v
+
+        return ValueResult.OK
+
+    def apply_constraint(self, constraint: Constraint):
+        stalled = False
+        changed = False
+        while not stalled:
+            results = [constraint(self, unit) for unit in self.__UNITS__]
+            if ValueResult.ERROR in results:
+                return ValueResult.ERROR
+            changed = changed or ValueResult.OK in results
+            stalled = all(map(lambda r: r == ValueResult.UNCHANGED, results))
+        print("Simplified? ", changed)
+        self.display()
+        return changed
+
+    def box_with_fewer_values(self) -> Union[bool, Box]:
+        boxes = list(filter(lambda x: x[0] > 1, [(len(self.board[box]), box) for box in ALL_BOXES]))
+        box = False
+        if boxes:
+            _, box = min(filter(lambda x: x[0] > 1, [(len(self.board[box]), box) for box in ALL_BOXES]))
+        return box
+
+    def display(self):
+        """
+        Display the values as a 2-D grid.
+        Args:
         values(dict): The sudoku in dictionary form
-    """
-    pass
+        """
+        width = 1 + max(len(self.board[s]) for s in ALL_BOXES)
+        line = '+'.join(['-' * (width * 3)] * 3)
+        for r in ROWS:
+            print(''.join("".join(sorted(self.board[(r, c)])).center(width) +
+                          ('|' if c in '36' else '') for c in COLS))
+            if r in 'CF':
+                print(line)
 
-def eliminate(values):
-    pass
 
-def only_choice(values):
-    pass
+def eliminate(sudoku: Sudoku, unit: Unit) -> ValueResult:
+    assigned = sudoku.get_assigned_values(unit)
+    #print("Values: ", assigned)
+    changed = False
+    error = False
+    for box in unit:
+        if len(sudoku.get_box_value(box)) > 1:
+            old_v = sudoku.get_box_value(box)
+            #print("removing: ", old_v, old_v - assigned)
+            store = sudoku.set_box_value(box, old_v - assigned)
+            changed = changed or store == ValueResult.OK
+            error = error or store == ValueResult.ERROR
+    return ValueResult.ERROR if error else ValueResult.OK if changed else ValueResult.UNCHANGED
 
-def reduce_puzzle(values):
-    pass
 
-def search(values):
-    pass
+def only_choice(sudoku: Sudoku, unit: Unit) -> Union[bool, Sudoku]:
+    unassigned = sudoku.get_unassigned_values(unit)
+    counts = Counter(unassigned)
+    uniques = set([v for v, c in counts.items() if c == 1])
+    changed = False
+    if uniques:
+        for box in unit:
+            if len(sudoku.get_box_value(box)) > 1:
+                old_v = sudoku.get_box_value(box)
+                new_v = old_v & uniques
+                changed = sudoku.set_box_value(box, new_v)
 
-def solve(grid):
+    return sudoku if changed else False
+
+
+def naked_twins_cns(sudoku: Board, unit: Unit) -> Union[bool, Board]:
+    unit_values = map(lambda b: tuple(sorted(list(sudoku[b]))), unit)
+    only_two = filter(lambda v: len(v) == 2, unit_values)
+    counts = Counter(only_two)
+    twins = [set(list(v)) for v, c in counts.items() if c > 1]
+    #print(twins)
+
+    changed = False
+    for box in unit:
+        for twin in twins:
+            if len(sudoku[box]) > 2:
+                old_v = sudoku[box]
+                new_v = old_v - twin
+                if new_v:
+                    sudoku[box] = new_v
+                changed = changed or old_v != new_v
+
+    return sudoku if changed else False
+
+
+def convert_board(grid, reverse=False) -> Board:
+    if reverse:
+        return dict(map(lambda it: (it[0][0] + it[0][1], "".join(sorted(list(it[1])))), grid.items()))
+    else:
+        return dict(map(lambda it: ((it[0][0], it[0][1]), set(list(it[1]))), grid.items()))
+
+
+def naked_twins(grid) -> Board:
+    board = convert_board(grid)
+    for unit in ALL_UNITS:
+        naked_twins_cns(board, unit)
+    #print("Simplified: ")
+    #display(board)
+    grid = convert_board(board, reverse=True)
+    return grid
+
+CONSTRAINTS: List[Constraint] = [eliminate] # only_choice] #, naked_twins_cns]
+
+
+def search(game: Sudoku) -> Union[bool, Sudoku]:
+    while game.is_solvable() and game.is_not_solved():
+        stalled = False
+        while not stalled:
+            results = [game.apply_constraint(constraint) for constraint in CONSTRAINTS]
+            stalled = not any(results)
+
+        #game.display()
+        print("Searching ... ")
+        box_to_change = game.box_with_fewer_values()
+        if box_to_change:
+            for value in game.get_box_value(box_to_change):
+                new_game = game.copy()
+                print("Changing: ", box_to_change, value)
+                new_game.set_box_value(box_to_change, set(value))
+                solution_attempt = search(new_game)
+                if solution_attempt:
+                    return solution_attempt
+
+    return game if game.is_solved() else False
+
+
+def solve(grid: str) -> Union[bool, Board]:
     """
     Find the solution to a Sudoku grid.
     Args:
@@ -67,16 +266,43 @@ def solve(grid):
     Returns:
         The dictionary representation of the final sudoku grid. False if no solution exists.
     """
+    game = Sudoku(grid)
+    game = search(game)
+    print()
+    game.display()
+    return game if game.is_solved() else False
+
+
+def display(values):
+    """
+    Display the values as a 2-D grid.
+    Input: The sudoku in dictionary form
+    Output: None
+    """
+    def to_str(box):
+        return box[0] + box[1]
+
+    width = 1+max(len(values[to_str(s)]) for s in ALL_BOXES)
+    line = '+'.join(['-'*(width*3)]*3)
+    for r in ROWS:
+        print(''.join("".join(values[r + c]).center(width)+('|' if c in '36' else '')
+                      for c in COLS))
+        if r in 'CF': print(line)
+    return
+
 
 if __name__ == '__main__':
     diag_sudoku_grid = '2.............62....1....7...6..8...3...9...7...6..4...4....8....52.............3'
-    display(solve(diag_sudoku_grid))
+    solution = solve(diag_sudoku_grid)
+    if solution:
+        print("Solved Sudoku: ")
+        solution.display()
 
-    try:
-        from visualize import visualize_assignments
-        visualize_assignments(assignments)
+    #try:
+    from visualize import visualize_assignments
+    visualize_assignments(solution.assignments)
 
-    except SystemExit:
-        pass
-    except:
-        print('We could not visualize your board due to a pygame issue. Not a problem! It is not a requirement.')
+    #except SystemExit:
+    #    pass
+    #except:
+    #    print('We could not visualize your board due to a pygame issue. Not a problem! It is not a requirement.')
