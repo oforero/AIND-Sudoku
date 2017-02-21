@@ -42,13 +42,16 @@ BOX_UNITS: List[Unit] = list(map(lambda g: tuple(g[1]), groupby(sorted(ALL_BOXES
                                                                 box_unit)))
 
 
-def diagonal_unit(box: Box) -> int:
-    return (1 if "".join(box) in ['A1', 'B2', 'C3', 'D4', 'E5', 'F6', 'G7', 'H8', 'I9'] else
-            2 if "".join(box) in ['A9', 'B8', 'C7', 'D6', 'E5', 'F4', 'G3', 'H2', 'I1'] else
-            3)
+def diagonal_unit_1(box: Box) -> int:
+    return "".join(box) in ['A1', 'B2', 'C3', 'D4', 'E5', 'F6', 'G7', 'H8', 'I9']
 
-DIAGONAL_UNITS: List[Unit] = list(map(lambda g: tuple(g[1]), groupby(sorted(ALL_BOXES, key=diagonal_unit),
-                                                                     diagonal_unit)))[:2]
+
+def diagonal_unit_2(box: Box) -> int:
+    return "".join(box) in ['A9', 'B8', 'C7', 'D6', 'E5', 'F4', 'G3', 'H2', 'I1']
+
+
+DIAGONAL_UNITS: List[Unit] = [tuple(filter(diagonal_unit_1, ALL_BOXES)),
+                              tuple(filter(diagonal_unit_2, ALL_BOXES))]
 
 ALL_UNITS: List[Unit] = list(chain(ROW_UNITS, COL_UNITS, BOX_UNITS, DIAGONAL_UNITS))
 
@@ -90,6 +93,28 @@ class Sudoku(object):
     def is_solved(self) -> bool:
         return all(map(lambda it: len(it[1]) == 1, self.board.items()))
 
+    def is_valid(self) -> bool:
+        def is_unit_valid(unit) -> bool:
+            values = set.union(*map(lambda box: self.board[box], unit))
+            return values == BOX_VALUES
+
+        unit_checks = map(is_unit_valid, self.__UNITS__)
+        return all(unit_checks)
+
+    def is_viable(self) -> bool:
+        """Returns True if the board can still be solved"""
+        def is_unit_viable(unit) -> bool:
+            empty = [self.board[box] for box in unit if len(self.board[box]) == 0]
+            if empty:
+                return False
+            values = chain(*[list(self.board[box]) for box in unit if len(self.board[box]) == 1])
+            counts = Counter(values)
+            repeated = list(map(lambda x: x > 1, counts.values()))
+            return not any(repeated)
+
+        unit_checks = list(map(is_unit_viable, self.__UNITS__))
+        return all(unit_checks)
+
     def is_not_solved(self) -> bool:
         return not self.is_solved()
 
@@ -118,30 +143,27 @@ class Sudoku(object):
         if self.board[box] == v:
             return ValueResult.UNCHANGED
 
-        if len(v) == 1:
-            for unit in self.get_units_for_box(box):
-                assigned = self.get_assigned_values(unit)
-                if v in assigned:
-                    return ValueResult.ERROR
-
-            self.board[box] = v
-            self.assignments.append(convert_board(self.board, reverse=True))
-
         self.board[box] = v
+        if len(v) == 1:
+            self.assignments.append(convert_board(self.board, reverse=True))
 
         return ValueResult.OK
 
-    def apply_constraint(self, constraint: Constraint):
-        stalled = False
-        changed = False
-        while not stalled:
-            results = [constraint(self, unit) for unit in self.__UNITS__]
-            if ValueResult.ERROR in results:
-                return ValueResult.ERROR
-            changed = changed or ValueResult.OK in results
-            stalled = all(map(lambda r: r == ValueResult.UNCHANGED, results))
-        print("Simplified? ", changed)
-        self.display()
+    def apply_constraint(self, constraints: List[Constraint]):
+        stalled_board = False
+        while not stalled_board:
+            stalled_board = True
+            for unit in self.__UNITS__:
+                changed = False
+                stalled = False
+                while not stalled:
+                    results = [constraint(self, unit) for constraint in constraints]
+                    if ValueResult.ERROR in results:
+                        return ValueResult.ERROR
+                    changed = changed or ValueResult.OK in results
+                    stalled = all(map(lambda r: r == ValueResult.UNCHANGED, results))
+                stalled_board &= not changed
+
         return changed
 
     def box_with_fewer_values(self) -> Union[bool, Box]:
@@ -167,14 +189,14 @@ class Sudoku(object):
 
 
 def eliminate(sudoku: Sudoku, unit: Unit) -> ValueResult:
+    """Find the assigned values in the unit and remove the values from the options of all
+       unassigned boxes in that unit"""
     assigned = sudoku.get_assigned_values(unit)
-    #print("Values: ", assigned)
     changed = False
     error = False
     for box in unit:
         if len(sudoku.get_box_value(box)) > 1:
             old_v = sudoku.get_box_value(box)
-            #print("removing: ", old_v, old_v - assigned)
             store = sudoku.set_box_value(box, old_v - assigned)
             changed = changed or store == ValueResult.OK
             error = error or store == ValueResult.ERROR
@@ -182,18 +204,25 @@ def eliminate(sudoku: Sudoku, unit: Unit) -> ValueResult:
 
 
 def only_choice(sudoku: Sudoku, unit: Unit) -> Union[bool, Sudoku]:
+    """Find the values that can be assigned to only one box in the unit and do it"""
+    assigned = sudoku.get_assigned_values(unit)
     unassigned = sudoku.get_unassigned_values(unit)
     counts = Counter(unassigned)
-    uniques = set([v for v, c in counts.items() if c == 1])
+    uniques = set([v for v, c in counts.items() if c == 1]) - assigned
     changed = False
+    error = False
+
     if uniques:
         for box in unit:
             if len(sudoku.get_box_value(box)) > 1:
                 old_v = sudoku.get_box_value(box)
                 new_v = old_v & uniques
-                changed = sudoku.set_box_value(box, new_v)
+                store = sudoku.set_box_value(box, new_v if new_v else old_v)
+                changed = changed or store == ValueResult.OK
+                error = error or store == ValueResult.ERROR
+        assert(sudoku.is_viable())
 
-    return sudoku if changed else False
+    return ValueResult.ERROR if error else ValueResult.OK if changed else ValueResult.UNCHANGED
 
 
 def naked_twins_cns(sudoku: Board, unit: Unit) -> Union[bool, Board]:
@@ -201,7 +230,6 @@ def naked_twins_cns(sudoku: Board, unit: Unit) -> Union[bool, Board]:
     only_two = filter(lambda v: len(v) == 2, unit_values)
     counts = Counter(only_two)
     twins = [set(list(v)) for v, c in counts.items() if c > 1]
-    #print(twins)
 
     changed = False
     for box in unit:
@@ -216,6 +244,9 @@ def naked_twins_cns(sudoku: Board, unit: Unit) -> Union[bool, Board]:
     return sudoku if changed else False
 
 
+CONSTRAINTS: List[Constraint] = [eliminate, only_choice] #, naked_twins_cns]
+
+
 def convert_board(grid, reverse=False) -> Board:
     if reverse:
         return dict(map(lambda it: (it[0][0] + it[0][1], "".join(sorted(list(it[1])))), grid.items()))
@@ -223,38 +254,25 @@ def convert_board(grid, reverse=False) -> Board:
         return dict(map(lambda it: ((it[0][0], it[0][1]), set(list(it[1]))), grid.items()))
 
 
-def naked_twins(grid) -> Board:
-    board = convert_board(grid)
-    for unit in ALL_UNITS:
-        naked_twins_cns(board, unit)
-    #print("Simplified: ")
-    #display(board)
-    grid = convert_board(board, reverse=True)
-    return grid
-
-CONSTRAINTS: List[Constraint] = [eliminate] # only_choice] #, naked_twins_cns]
-
-
 def search(game: Sudoku) -> Union[bool, Sudoku]:
-    while game.is_solvable() and game.is_not_solved():
-        stalled = False
-        while not stalled:
-            results = [game.apply_constraint(constraint) for constraint in CONSTRAINTS]
-            stalled = not any(results)
+    while game.is_viable() and game.is_not_solved():
+        game.apply_constraint(CONSTRAINTS)
+        if not game.is_viable():
+            return False
 
-        #game.display()
-        print("Searching ... ")
         box_to_change = game.box_with_fewer_values()
         if box_to_change:
             for value in game.get_box_value(box_to_change):
                 new_game = game.copy()
-                print("Changing: ", box_to_change, value)
                 new_game.set_box_value(box_to_change, set(value))
+
                 solution_attempt = search(new_game)
+                if not game.is_viable():
+                    return False
                 if solution_attempt:
                     return solution_attempt
 
-    return game if game.is_solved() else False
+    return game if game.is_valid() else False
 
 
 def solve(grid: str) -> Union[bool, Board]:
@@ -268,34 +286,17 @@ def solve(grid: str) -> Union[bool, Board]:
     """
     game = Sudoku(grid)
     game = search(game)
-    print()
-    game.display()
     return game if game.is_solved() else False
-
-
-def display(values):
-    """
-    Display the values as a 2-D grid.
-    Input: The sudoku in dictionary form
-    Output: None
-    """
-    def to_str(box):
-        return box[0] + box[1]
-
-    width = 1+max(len(values[to_str(s)]) for s in ALL_BOXES)
-    line = '+'.join(['-'*(width*3)]*3)
-    for r in ROWS:
-        print(''.join("".join(values[r + c]).center(width)+('|' if c in '36' else '')
-                      for c in COLS))
-        if r in 'CF': print(line)
-    return
 
 
 if __name__ == '__main__':
     diag_sudoku_grid = '2.............62....1....7...6..8...3...9...7...6..4...4....8....52.............3'
     solution = solve(diag_sudoku_grid)
-    if solution:
+    if solution.is_valid():
         print("Solved Sudoku: ")
+        solution.display()
+    else:
+        print("Bad Sudoku: ")
         solution.display()
 
     #try:
