@@ -1,4 +1,4 @@
-from typing import Callable, Dict, List, Set, Tuple, Union
+from typing import Callable, Dict, List, Set, Tuple, Union, Optional
 from itertools import chain, groupby
 from collections import Counter
 from enum import Enum
@@ -166,9 +166,9 @@ class Sudoku(object):
 
         return changed
 
-    def box_with_fewer_values(self) -> Union[bool, Box]:
+    def box_with_fewer_values(self) -> Optional[Box]:
         boxes = list(filter(lambda x: x[0] > 1, [(len(self.board[box]), box) for box in ALL_BOXES]))
-        box = False
+        box = None
         if boxes:
             _, box = min(filter(lambda x: x[0] > 1, [(len(self.board[box]), box) for box in ALL_BOXES]))
         return box
@@ -203,7 +203,7 @@ def eliminate(sudoku: Sudoku, unit: Unit) -> ValueResult:
     return ValueResult.ERROR if error else ValueResult.OK if changed else ValueResult.UNCHANGED
 
 
-def only_choice(sudoku: Sudoku, unit: Unit) -> Union[bool, Sudoku]:
+def only_choice(sudoku: Sudoku, unit: Unit) -> ValueResult:
     """Find the values that can be assigned to only one box in the unit and do it"""
     assigned = sudoku.get_assigned_values(unit)
     unassigned = sudoku.get_unassigned_values(unit)
@@ -211,7 +211,6 @@ def only_choice(sudoku: Sudoku, unit: Unit) -> Union[bool, Sudoku]:
     uniques = set([v for v, c in counts.items() if c == 1]) - assigned
     changed = False
     error = False
-
     if uniques:
         for box in unit:
             if len(sudoku.get_box_value(box)) > 1:
@@ -225,26 +224,28 @@ def only_choice(sudoku: Sudoku, unit: Unit) -> Union[bool, Sudoku]:
     return ValueResult.ERROR if error else ValueResult.OK if changed else ValueResult.UNCHANGED
 
 
-def naked_twins_cns(sudoku: Board, unit: Unit) -> Union[bool, Board]:
-    unit_values = map(lambda b: tuple(sorted(list(sudoku[b]))), unit)
+def naked_twins(sudoku: Board, unit: Unit) -> ValueResult:
+    assigned = sudoku.get_assigned_values(unit)
+    unit_values = map(lambda b: tuple(sorted(list(sudoku.board[b]))), unit)
     only_two = filter(lambda v: len(v) == 2, unit_values)
     counts = Counter(only_two)
     twins = [set(list(v)) for v, c in counts.items() if c > 1]
-
+    twins = list(filter(lambda t: t, map(lambda t: t - assigned, twins)))
     changed = False
-    for box in unit:
-        for twin in twins:
-            if len(sudoku[box]) > 2:
-                old_v = sudoku[box]
+    error = False
+    for twin in twins:
+        for box in unit:
+            old_v = sudoku.board[box]
+            if len(old_v) > 2:
                 new_v = old_v - twin
-                if new_v:
-                    sudoku[box] = new_v
-                changed = changed or old_v != new_v
+                store = sudoku.set_box_value(box, new_v if new_v else old_v)
+                changed = changed or store == ValueResult.OK
+                error = error or store == ValueResult.ERROR
 
-    return sudoku if changed else False
+    return ValueResult.OK if changed else ValueResult.UNCHANGED
 
 
-CONSTRAINTS: List[Constraint] = [eliminate, only_choice] #, naked_twins_cns]
+CONSTRAINTS: List[Constraint] = [eliminate, only_choice, naked_twins]
 
 
 def convert_board(grid, reverse=False) -> Board:
@@ -254,7 +255,7 @@ def convert_board(grid, reverse=False) -> Board:
         return dict(map(lambda it: ((it[0][0], it[0][1]), set(list(it[1]))), grid.items()))
 
 
-def search(game: Sudoku) -> Union[bool, Sudoku]:
+def search(game: Sudoku) -> Optional[Sudoku]:
     while game.is_viable() and game.is_not_solved():
         game.apply_constraint(CONSTRAINTS)
         if not game.is_viable():
@@ -272,7 +273,7 @@ def search(game: Sudoku) -> Union[bool, Sudoku]:
                 if solution_attempt:
                     return solution_attempt
 
-    return game if game.is_valid() else False
+    return game if game.is_valid() else None
 
 
 def solve(grid: str) -> Union[bool, Board]:
@@ -299,11 +300,11 @@ if __name__ == '__main__':
         print("Bad Sudoku: ")
         solution.display()
 
-    #try:
-    from visualize import visualize_assignments
-    visualize_assignments(solution.assignments)
+    try:
+        from visualize import visualize_assignments
+        visualize_assignments(solution.assignments)
 
-    #except SystemExit:
-    #    pass
-    #except:
-    #    print('We could not visualize your board due to a pygame issue. Not a problem! It is not a requirement.')
+    except SystemExit:
+        pass
+    except:
+        print('We could not visualize your board due to a pygame issue. Not a problem! It is not a requirement.')
