@@ -53,7 +53,9 @@ def diagonal_unit_2(box: Box) -> int:
 DIAGONAL_UNITS: List[Unit] = [tuple(filter(diagonal_unit_1, ALL_BOXES)),
                               tuple(filter(diagonal_unit_2, ALL_BOXES))]
 
-ALL_UNITS: List[Unit] = list(chain(ROW_UNITS, COL_UNITS, BOX_UNITS, DIAGONAL_UNITS))
+
+NOT_DIAGONAL_UNITS: List[Unit] = list(chain(ROW_UNITS, COL_UNITS, BOX_UNITS))
+ALL_UNITS: List[Unit] = list(chain(NOT_DIAGONAL_UNITS, DIAGONAL_UNITS))
 
 
 def build_unit(ix: chr, other: RowCol, ix_first=True) -> Unit:
@@ -77,10 +79,12 @@ class Sudoku(object):
             self.board: Board = dict(map(lambda x: (x[0], set(chr(ord(x[1]))) if x[1] != '.' else BOX_VALUES),
                                          flat_board))
             self.assignments = []
+            self.__UNITS__ = units
 
         else:
             self.board = grid
             self.assignments = assignments[::]
+            self.__UNITS__ = units
 
     def __str__(self):
         return "".join(map(lambda it: '*' if len(it[1]) == 0 else
@@ -88,10 +92,10 @@ class Sudoku(object):
                            sorted(self.board.items())))
 
     def copy(self):
-        return Sudoku(self.board.copy())
+        return Sudoku(self.board.copy(), self.assignments, self.__UNITS__)
 
     def is_solved(self) -> bool:
-        return all(map(lambda it: len(it[1]) == 1, self.board.items()))
+        return all(map(lambda it: len(it[1]) == 1, self.board.items())) and self.is_viable()
 
     def is_valid(self) -> bool:
         def is_unit_valid(unit) -> bool:
@@ -128,7 +132,8 @@ class Sudoku(object):
         return self.board[ix]
 
     def get_assigned_values(self, unit: Unit) -> Set[chr]:
-        return set.union(*[self.board[box] for box in unit if len(self.board[box]) == 1])
+        values = [self.board[box] for box in unit if len(self.board[box]) == 1]
+        return set.union(*values) if values else set()
 
     def get_unassigned_values(self, unit: Unit) -> List[chr]:
         return list(chain(*[self.board[box] for box in unit if len(self.board[box]) > 1]))
@@ -219,7 +224,6 @@ def only_choice(sudoku: Sudoku, unit: Unit) -> ValueResult:
                 store = sudoku.set_box_value(box, new_v if new_v else old_v)
                 changed = changed or store == ValueResult.OK
                 error = error or store == ValueResult.ERROR
-        assert(sudoku.is_viable())
 
     return ValueResult.ERROR if error else ValueResult.OK if changed else ValueResult.UNCHANGED
 
@@ -255,44 +259,48 @@ def convert_board(grid, reverse=False) -> Board:
         return dict(map(lambda it: ((it[0][0], it[0][1]), set(list(it[1]))), grid.items()))
 
 
-def search(game: Sudoku) -> Optional[Sudoku]:
+def search(game: Sudoku, depth=0) -> Optional[Sudoku]:
     while game.is_viable() and game.is_not_solved():
         game.apply_constraint(CONSTRAINTS)
-        if not game.is_viable():
-            return False
+        if not game or not game.is_viable():
+            #print("BAD STRATEGY ", depth)
+            #game.display()
+            return None
 
+        #print("Searching")
         box_to_change = game.box_with_fewer_values()
         if box_to_change:
             for value in game.get_box_value(box_to_change):
                 new_game = game.copy()
                 new_game.set_box_value(box_to_change, set(value))
+                #print("Try Search: ", depth)
+                solution_attempt = search(new_game, depth+1)
+                if not solution_attempt or not solution_attempt.is_viable():
+                    continue
+                return solution_attempt
 
-                solution_attempt = search(new_game)
-                if not game.is_viable():
-                    return False
-                if solution_attempt:
-                    return solution_attempt
-
-    return game if game.is_valid() else None
+    return game if game and game.is_valid() else None
 
 
-def solve(grid: str) -> Union[bool, Board]:
+def solve(grid: str, use_diagonal=False) -> Optional[Sudoku]:
     """
     Find the solution to a Sudoku grid.
     Args:
         grid(string): a string representing a sudoku grid.
             Example: '2.............62....1....7...6..8...3...9...7...6..4...4....8....52.............3'
+        use_diagonal: If true it will enforce a diagonal sudoku
     Returns:
         The dictionary representation of the final sudoku grid. False if no solution exists.
     """
-    game = Sudoku(grid)
+    game = Sudoku(grid, units=ALL_UNITS if use_diagonal else NOT_DIAGONAL_UNITS)
     game = search(game)
-    return game if game.is_solved() else False
+    return game if game and game.is_solved() else None
 
 
 if __name__ == '__main__':
     diag_sudoku_grid = '2.............62....1....7...6..8...3...9...7...6..4...4....8....52.............3'
-    solution = solve(diag_sudoku_grid)
+    #diag_sudoku_grid = "1..92....524.1...........7..5...81.2.........4.27...9..6...........3.945....71..6"
+    solution = solve(diag_sudoku_grid, use_diagonal=True)
     if solution.is_valid():
         print("Solved Sudoku: ")
         solution.display()

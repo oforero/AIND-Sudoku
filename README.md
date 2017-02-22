@@ -2,12 +2,17 @@
 ## Introductory Project: Diagonal Sudoku Solver
 
 # Question 1 (Naked Twins)
-Q: How do we use constraint propagation to solve the naked twins problem?  
-A: *Student should provide answer here*
+Q: How do we use constraint propagation to solve the naked twins problem?
+A: I think this question is not clear.  Sudoku has only one real constraint which is that each unit must have no repeated digits.
+I expressed it in the code in the method called eliminate.
+Things like only choice or naked twins are more properly understood as strategies to reduce the size of the search space.
+I implemented a general method in the Sudoku that executes one strategy through all the relevant units; following the classic Strategy Pattern but using Higher Order Functions to simplify its implementation. When building the Sudoku object one pass a list of the strategies to use to reach a solution.
 
 # Question 2 (Diagonal Sudoku)
-Q: How do we use constraint propagation to solve the diagonal sudoku problem?  
-A: *Student should provide answer here*
+Q: How do we use constraint propagation to solve the diagonal sudoku problem?
+A: I implemented a Sudoku approach that does not hard coded the Units.
+The units are parameters at construction time; the units representation is a tuple of eight elements.
+Adding the diagonal constraint is achieved by passing a collection containing the diagonal groups. The rest of the code remains the same, and the Sudoku constraint and solution strategies are applied to all the units used to construct the Sudoku object.
 
 ### Install
 
