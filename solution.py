@@ -1,78 +1,15 @@
-from typing import Callable, Dict, List, Set, Tuple, Union, Optional
-from itertools import chain, groupby
 from collections import Counter
-from enum import Enum
+from itertools import chain
+from typing import List, Set, Union, Optional
 
-# Type Declarations
-RowCol = Tuple[chr, chr, chr, chr, chr, chr, chr, chr, chr]
-Box = Tuple[chr, chr]
-Unit = Tuple[Box, Box, Box,
-             Box, Box, Box,
-             Box, Box, Box]
-
-Values = Set[chr]
-Board = Dict[Box, Values]
-
-Constraint = Callable[[any, Unit], Board]
-
-# Constants
-ROWS: RowCol = tuple(map(chr, range(ord('A'), ord('I')+1)))
-COLS: RowCol = tuple(map(chr, range(ord('1'), ord('9')+1)))
-BOX_VALUES: Values = set(COLS)
-
-ALL_BOXES: List[Box] = [tuple([r, c]) for r in ROWS for c in COLS]
-
-ROW_UNITS: List[Unit] = list(map(lambda g: tuple(g[1]), groupby(ALL_BOXES, lambda box: box[0])))
-COL_UNITS: List[Unit] = list(map(lambda g: tuple(g[1]), groupby(sorted(ALL_BOXES, key=lambda b: b[1]),
-                                                                lambda box: box[1])))
-
-
-def box_unit(box: Box) -> int:
-    return (1 if box[0] in ['A', 'B', 'C'] and box[1] in ['1', '2', '3'] else
-            2 if box[0] in ['A', 'B', 'C'] and box[1] in ['4', '5', '6'] else
-            3 if box[0] in ['A', 'B', 'C'] and box[1] in ['7', '8', '9'] else
-            4 if box[0] in ['D', 'E', 'F'] and box[1] in ['1', '2', '3'] else
-            5 if box[0] in ['D', 'E', 'F'] and box[1] in ['4', '5', '6'] else
-            6 if box[0] in ['D', 'E', 'F'] and box[1] in ['7', '8', '9'] else
-            7 if box[0] in ['G', 'H', 'I'] and box[1] in ['1', '2', '3'] else
-            8 if box[0] in ['G', 'H', 'I'] and box[1] in ['4', '5', '6'] else
-            9)
-
-BOX_UNITS: List[Unit] = list(map(lambda g: tuple(g[1]), groupby(sorted(ALL_BOXES, key=box_unit),
-                                                                box_unit)))
-
-
-def diagonal_unit_1(box: Box) -> int:
-    return "".join(box) in ['A1', 'B2', 'C3', 'D4', 'E5', 'F6', 'G7', 'H8', 'I9']
-
-
-def diagonal_unit_2(box: Box) -> int:
-    return "".join(box) in ['A9', 'B8', 'C7', 'D6', 'E5', 'F4', 'G3', 'H2', 'I1']
-
-
-DIAGONAL_UNITS: List[Unit] = [tuple(filter(diagonal_unit_1, ALL_BOXES)),
-                              tuple(filter(diagonal_unit_2, ALL_BOXES))]
-
-
-NOT_DIAGONAL_UNITS: List[Unit] = list(chain(ROW_UNITS, COL_UNITS, BOX_UNITS))
-ALL_UNITS: List[Unit] = list(chain(NOT_DIAGONAL_UNITS, DIAGONAL_UNITS))
-
-
-def build_unit(ix: chr, other: RowCol, ix_first=True) -> Unit:
-    if ix_first:
-        return tuple(map(lambda o: Box(ix, o), other))
-    else:
-        return tuple(map(lambda o: Box(o, ix), other))
-
-
-class ValueResult(Enum):
-    ERROR = 1
-    UNCHANGED = 2
-    OK = 3
+from unit_builder import Box, Unit, Values, Board, Constraint, ValueResult
+from unit_builder import ROWS, COLS, BOX_VALUES, ALL_BOXES, NOT_DIAGONAL_UNITS, ALL_UNITS
+from strategies import CONSTRAINTS
 
 
 class Sudoku(object):
     def __init__(self, grid: Union[str, Board], assignments=[], units=ALL_UNITS):
+        """Construct a Sudoku from a String or a Board (Dictionary)"""
         self.__UNITS__ = units
         if isinstance(grid, str):
             flat_board = zip(ALL_BOXES, grid)
@@ -92,12 +29,15 @@ class Sudoku(object):
                            sorted(self.board.items())))
 
     def copy(self):
+        """Copy constructor necessary for search"""
         return Sudoku(self.board.copy(), self.assignments, self.__UNITS__)
 
     def is_solved(self) -> bool:
+        """True if all boxes has been assigned and the sudoku constraint holds for all units"""
         return all(map(lambda it: len(it[1]) == 1, self.board.items())) and self.is_viable()
 
     def is_valid(self) -> bool:
+        """Checks if the sudoku constraint holds for all units by checking the assigned boxes"""
         def is_unit_valid(unit) -> bool:
             values = set.union(*map(lambda box: self.board[box], unit))
             return values == BOX_VALUES
@@ -123,6 +63,7 @@ class Sudoku(object):
         return not self.is_solved()
 
     def is_unsolvable(self) -> bool:
+        """True if a box has been assigned an empty value"""
         return any(map(lambda it: len(it[1]) == 0, self.board.items()))
 
     def is_solvable(self) -> bool:
@@ -132,16 +73,24 @@ class Sudoku(object):
         return self.board[ix]
 
     def get_assigned_values(self, unit: Unit) -> Set[chr]:
+        """Returns a set of the values of assigned boxes for a given unit"""
         values = [self.board[box] for box in unit if len(self.board[box]) == 1]
         return set.union(*values) if values else set()
 
     def get_unassigned_values(self, unit: Unit) -> List[chr]:
+        """Returns a list of all the values that remain to be assigned in the unit"""
         return list(chain(*[self.board[box] for box in unit if len(self.board[box]) > 1]))
 
     def get_units_for_box(self, box: Box) -> List[Unit]:
+        """Returns the units to which the box belongs"""
         return list(filter(lambda unit: box in unit, self.__UNITS__))
 
     def set_box_value(self, box: Box, v: Values) -> ValueResult:
+        """Sets the value of a box and return a Status:
+              ERROR: If it tries to assign a box already assigned
+              UNCHANGED: If the new and the old value are the same
+              OK: In all the other cases
+              """
         if not v or len(self.board[box]) == 1:
             return ValueResult.ERROR
 
@@ -155,6 +104,7 @@ class Sudoku(object):
         return ValueResult.OK
 
     def apply_constraint(self, constraints: List[Constraint]):
+        """Repeatedly apply the strategies until no further simplification is possible"""
         stalled_board = False
         while not stalled_board:
             stalled_board = True
@@ -172,6 +122,7 @@ class Sudoku(object):
         return changed
 
     def box_with_fewer_values(self) -> Optional[Box]:
+        """Find the unassigned box with the fewer number of possible values"""
         boxes = list(filter(lambda x: x[0] > 1, [(len(self.board[box]), box) for box in ALL_BOXES]))
         box = None
         if boxes:
@@ -191,65 +142,6 @@ class Sudoku(object):
                           ('|' if c in '36' else '') for c in COLS))
             if r in 'CF':
                 print(line)
-
-
-def eliminate(sudoku: Sudoku, unit: Unit) -> ValueResult:
-    """Find the assigned values in the unit and remove the values from the options of all
-       unassigned boxes in that unit"""
-    assigned = sudoku.get_assigned_values(unit)
-    changed = False
-    error = False
-    for box in unit:
-        if len(sudoku.get_box_value(box)) > 1:
-            old_v = sudoku.get_box_value(box)
-            store = sudoku.set_box_value(box, old_v - assigned)
-            changed = changed or store == ValueResult.OK
-            error = error or store == ValueResult.ERROR
-    return ValueResult.ERROR if error else ValueResult.OK if changed else ValueResult.UNCHANGED
-
-
-def only_choice(sudoku: Sudoku, unit: Unit) -> ValueResult:
-    """Find the values that can be assigned to only one box in the unit and do it"""
-    assigned = sudoku.get_assigned_values(unit)
-    unassigned = sudoku.get_unassigned_values(unit)
-    counts = Counter(unassigned)
-    uniques = set([v for v, c in counts.items() if c == 1]) - assigned
-    changed = False
-    error = False
-    if uniques:
-        for box in unit:
-            if len(sudoku.get_box_value(box)) > 1:
-                old_v = sudoku.get_box_value(box)
-                new_v = old_v & uniques
-                store = sudoku.set_box_value(box, new_v if new_v else old_v)
-                changed = changed or store == ValueResult.OK
-                error = error or store == ValueResult.ERROR
-
-    return ValueResult.ERROR if error else ValueResult.OK if changed else ValueResult.UNCHANGED
-
-
-def naked_twins(sudoku: Board, unit: Unit) -> ValueResult:
-    assigned = sudoku.get_assigned_values(unit)
-    unit_values = map(lambda b: tuple(sorted(list(sudoku.board[b]))), unit)
-    only_two = filter(lambda v: len(v) == 2, unit_values)
-    counts = Counter(only_two)
-    twins = [set(list(v)) for v, c in counts.items() if c > 1]
-    twins = list(filter(lambda t: t, map(lambda t: t - assigned, twins)))
-    changed = False
-    error = False
-    for twin in twins:
-        for box in unit:
-            old_v = sudoku.board[box]
-            if len(old_v) > 2:
-                new_v = old_v - twin
-                store = sudoku.set_box_value(box, new_v if new_v else old_v)
-                changed = changed or store == ValueResult.OK
-                error = error or store == ValueResult.ERROR
-
-    return ValueResult.OK if changed else ValueResult.UNCHANGED
-
-
-CONSTRAINTS: List[Constraint] = [eliminate, only_choice, naked_twins]
 
 
 def convert_board(grid, reverse=False) -> Board:

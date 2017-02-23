@@ -1,6 +1,8 @@
 import solution
 import unittest
 
+import strategies
+
 
 class TestNakedTwins(unittest.TestCase):
     before_naked_twins_1 = {'I6': '4', 'H9': '3', 'I2': '6', 'E8': '1', 'H3': '5', 'H7': '8', 'I7': '1', 'I4': '8',
@@ -70,7 +72,7 @@ class TestNakedTwins(unittest.TestCase):
     def test_naked_twins(self):
         board = solution.convert_board(self.before_naked_twins_1)
         sudoku = solution.Sudoku(board)
-        sudoku.apply_constraint([solution.naked_twins])
+        sudoku.apply_constraint([strategies.naked_twins])
         result = solution.convert_board(sudoku.board, reverse=True)
 
         self.assertTrue(result in self.possible_solutions_1,
@@ -79,7 +81,7 @@ class TestNakedTwins(unittest.TestCase):
     def test_naked_twins2(self):
         board = solution.convert_board(self.before_naked_twins_2)
         sudoku = solution.Sudoku(board)
-        sudoku.apply_constraint([solution.naked_twins])
+        sudoku.apply_constraint([strategies.naked_twins])
         result = solution.convert_board(sudoku.board, reverse=True)
 
         self.assertTrue(result in self.possible_solutions_2,
